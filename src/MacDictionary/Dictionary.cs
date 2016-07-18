@@ -22,9 +22,14 @@ namespace MacDictionary
         {
             var searchResult = KeyTextData.FindEntry(word, st);
             var result = new List<string>();
-            foreach(var entry in searchResult)
+
+            var CheckedAddress = new List<int[]>();
+
+            foreach (var entry in searchResult)
             {
-                result.Add(BodyData.GetEntryByAddress(entry.CompressedAddress + BodyData.AddressOffset).GetEntryByAddress(entry.TextAddress, System.Text.Encoding.UTF8));
+                if (CheckedAddress.Exists((a)=> { return a[0] == entry.CompressedAddress && a[1] == entry.TextAddress; })) continue;
+                result.Add(BodyData.GetEntryByAddress(entry.CompressedAddress + BodyData.AddressOffset )?.GetEntryByAddress(entry.TextAddress, System.Text.Encoding.UTF8));
+                CheckedAddress.Add(new int[] { entry.CompressedAddress, entry.TextAddress });
             }
             return result.ToArray();
         }
@@ -65,6 +70,16 @@ namespace MacDictionary
 
         public CompressedEntry GetEntryByAddress(long address)
         {
+            //int i = 0;
+            //foreach (var addr in Address)
+            //{
+            //    if (addr>=address)
+            //    {
+            //        return Entries[i];
+            //    }
+            //    i++;
+            //}
+            //return null;
             if (Address.Contains(address))
             {
                 return Entries[Array.IndexOf(Address, address)];
@@ -82,7 +97,7 @@ namespace MacDictionary
             }
         }
 
-        public static long AddressOffset { get { return 0x60; } }
+        public static long AddressOffset { get { return 0x40; } }
 
         private static CompressedEntry GetEntry(Stream Stream,out int compdLen)
         {
