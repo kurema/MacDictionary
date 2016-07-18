@@ -15,6 +15,14 @@ namespace MacDictionary
             return BitConverter.ToInt32(bytes, 0);
         }
 
+        public static uint UnpackUInt(byte[] bytes)
+        {
+            if (!BitConverter.IsLittleEndian)
+                Array.Reverse(bytes);
+
+            return BitConverter.ToUInt32(bytes, 0);
+        }
+
         public static short UnpackShort(byte[] bytes)
         {
             if (!BitConverter.IsLittleEndian)

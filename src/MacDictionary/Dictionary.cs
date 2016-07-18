@@ -7,48 +7,137 @@ using System.IO;
 
 namespace MacDictionary
 {
+    public class Dictionary
+    {
+        public BodyData BodyData;
+        public KeyTextData KeyTextData;
+
+        public Dictionary(string pathBodyData,string pathKeyTextData)
+        {
+            BodyData = new BodyData(pathBodyData);
+            KeyTextData = new KeyTextData(pathKeyTextData);
+        }
+
+        public string[] FindEntry(string word,SearchType st=SearchType.StartWith)
+        {
+            var searchResult = KeyTextData.FindEntry(word, st);
+            var result = new List<string>();
+            foreach(var entry in searchResult)
+            {
+                result.Add(BodyData.GetEntryByAddress(entry.CompressedAddress + BodyData.AddressOffset).GetEntryByAddress(entry.TextAddress, System.Text.Encoding.UTF8));
+            }
+            return result.ToArray();
+        }
+    }
+
     public class BodyData
     {
         public CompressedEntry[] Entries { get; private set; }
+        public long[] Address { get; private set; }
 
         public BodyData(string path)
         {
             using (var Stream = new FileStream(path, FileMode.Open))
             {
-                Stream.Seek(0x40, SeekOrigin.Begin);
                 byte[] bytes = new byte[4];
+
+                Stream.Seek(0x40, SeekOrigin.Begin);
                 Stream.Read(bytes, 0, 4);
                 int length = Functions.UnpackInt(bytes);
                 var entries = new List<CompressedEntry>();
+                var address = new List<long>();
 
                 Stream.Seek(0x60, SeekOrigin.Begin);
                 int i = 0;
                 while (true)
                 {
-                    Stream.Read(bytes, 0, 4);
-                    int dataLen = Functions.UnpackInt(bytes);
-                    Stream.Read(bytes, 0, 4);
-                    int compdLen = Functions.UnpackInt(bytes);
-                    Stream.Read(bytes, 0, 4);
-                    int rawLen = Functions.UnpackInt(bytes);
-
-                    Stream.Seek(2, SeekOrigin.Current);
-                    var data = new byte[dataLen - 8 - 2];
-                    Stream.Read(data, 0, dataLen - 8 - 2);
-                    MemoryStream mr = new MemoryStream(data);
-                    entries.Add(new CompressedEntry(mr, dataLen, rawLen));
+                    int compdLen;
+                    address.Add(Stream.Position);
+                    entries.Add(GetEntry(Stream,out compdLen));
 
                     i += 12 + compdLen;
                     if (i > length) { break; }
                 }
+                Address = address.ToArray();
                 Entries = entries.ToArray();
             }
         }
+
+        public CompressedEntry GetEntryByAddress(long address)
+        {
+            if (Address.Contains(address))
+            {
+                return Entries[Array.IndexOf(Address, address)];
+            }
+            return null;
+        }
+
+        public static CompressedEntry GetEntry(string path, long Address)
+        {
+            using (var Stream = new FileStream(path, FileMode.Open))
+            {
+                Stream.Seek(Address, SeekOrigin.Begin);
+                int dummy;
+                return GetEntry(Stream, out dummy);
+            }
+        }
+
+        public static long AddressOffset { get { return 0x60; } }
+
+        private static CompressedEntry GetEntry(Stream Stream,out int compdLen)
+        {
+            byte[] bytes = new byte[4];
+
+            Stream.Read(bytes, 0, 4);
+            int dataLen = Functions.UnpackInt(bytes);
+            Stream.Read(bytes, 0, 4);
+            compdLen = Functions.UnpackInt(bytes);
+            Stream.Read(bytes, 0, 4);
+            int rawLen = Functions.UnpackInt(bytes);
+
+            Stream.Seek(2, SeekOrigin.Current);
+            var data = new byte[dataLen - 8 - 2];
+            Stream.Read(data, 0, dataLen - 8 - 2);
+            return (new CompressedEntry(data, dataLen, rawLen));
+        }
+    }
+
+    public enum SearchType
+    {
+        StartWith,EndWith,Contains,Equal
     }
 
     public class KeyTextData
     {
         public CompressedEntry[] Entries { get; private set; }
+
+
+        public KeyText[] FindEntry(string word,SearchType st=SearchType.StartWith)
+        {
+            var result = new List<KeyText>();
+            foreach(var entry in Entries)
+            {
+                var str1 = KeyText.Parse(entry.Decompress());
+                foreach(var str2 in str1)
+                {
+                    foreach(var str3 in str2)
+                    {
+                        bool check = false;
+                        foreach (var text in str3.Texts) {
+                            switch (st)
+                            {
+                                case SearchType.Contains:check = check || text.Contains(word);break;
+                                case SearchType.StartWith: check = check || text.StartsWith(word); break;
+                                case SearchType.EndWith: check = check || text.EndsWith(word); break;
+                                case SearchType.Equal: check = check || text==word; break;
+                            }
+                        }
+                        if (check) result.Add(str3);
+                    }
+                }
+            }
+            return result.ToArray();
+        }
 
         public KeyTextData(string path)
         {
@@ -73,8 +162,7 @@ namespace MacDictionary
                     Stream.Seek(2, SeekOrigin.Current);
                     var data = new byte[dataLen - 4 - 2];
                     Stream.Read(data, 0, dataLen - 4 - 2);
-                    MemoryStream mr = new MemoryStream(data);
-                    entries.Add(new CompressedEntry(mr, dataLen, rawLen));
+                    entries.Add(new CompressedEntry(data, dataLen, rawLen));
 
                     Stream.Seek(8 - (Stream.Position + 7) % 8 - 1, SeekOrigin.Current);
                     while (Stream.ReadByte() == 0)
@@ -102,21 +190,15 @@ namespace MacDictionary
         }
     }
 
-
-
-
-
     public class KeyText
     {
         public string[] Texts;
-        public byte[] Head;
-        public int Head1;
-        public int Head2;
+        public int TextAddress;
+        public int CompressedAddress;
 
         public KeyText(string[] strs, byte[] head)
         {
             this.Texts = strs;
-            this.Head = head;
         }
 
         public KeyText() { }
@@ -157,7 +239,7 @@ namespace MacDictionary
 
                 var head = new byte[10];
                 nms.Read(head, 0, 10);
-                KeyText str = new KeyText() { Head = head ,Head1=head1,Head2=head2};
+                KeyText str = new KeyText() { TextAddress=head1,CompressedAddress=head2};
                 var texts = new List<string>();
                 while (true)
                 {
@@ -201,13 +283,13 @@ namespace MacDictionary
 
     public class CompressedEntry
     {
-        private MemoryStream stream;
+        private byte[] Content;
         private int RawLength;
         private int CompressedLength;
 
-        public CompressedEntry(MemoryStream ms, int compLength, int rawLength)
+        public CompressedEntry(byte[] content, int compLength, int rawLength)
         {
-            this.stream = ms;
+            this.Content = content;
             this.CompressedLength = compLength;
             this.RawLength = rawLength;
         }
@@ -222,8 +304,33 @@ namespace MacDictionary
             return result;
         }
 
+        public byte[] GetEntryByAddress(long address)
+        {
+            var stream = new MemoryStream(Content);
+            using (var ds = new System.IO.Compression.DeflateStream(stream, System.IO.Compression.CompressionMode.Decompress))
+            {
+                for(long i = 0; i < address; i++)
+                {
+                    ds.ReadByte();
+                }
+
+                var bytes = new byte[4];
+                ds.Read(bytes, 0, 4);
+                int strLen = Functions.UnpackInt(bytes);
+
+                var str = new byte[strLen];
+                ds.Read(str, 0, strLen);
+                return str;
+            }
+        }
+        public string GetEntryByAddress(long address,System.Text.Encoding enc)
+        {
+            return enc.GetString(GetEntryByAddress(address));
+        }
+
         public byte[][] Decompress()
         {
+            var stream = new MemoryStream(Content);
             var result = new List<byte[]>();
             stream.Seek(0, SeekOrigin.Begin);
             using (var ds = new System.IO.Compression.DeflateStream(stream, System.IO.Compression.CompressionMode.Decompress))
