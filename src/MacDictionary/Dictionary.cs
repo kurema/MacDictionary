@@ -126,8 +126,21 @@ namespace MacDictionary
     {
         public CompressedEntry[] Entries { get; private set; }
 
+        public KeyText[] FindEntry(string word, SearchType st = SearchType.StartWith)
+        {
+            return FindEntry(word,(text,w)=> {
+                switch (st)
+                {
+                    case SearchType.Contains: return text.ToLower().Contains(w.ToLower()); 
+                    case SearchType.StartWith: return text.ToLower().StartsWith(w.ToLower()); 
+                    case SearchType.EndWith: return text.ToLower().EndsWith(w.ToLower()); 
+                    case SearchType.Equal: return text.ToLower() == w.ToLower(); 
+                }
+                return false;
+            });
+        }
 
-        public KeyText[] FindEntry(string word,SearchType st=SearchType.StartWith)
+        public KeyText[] FindEntry(string word,Func<string,string,bool> f)
         {
             var result = new List<KeyText>();
             foreach(var entry in Entries)
@@ -139,13 +152,7 @@ namespace MacDictionary
                     {
                         bool check = false;
                         foreach (var text in str3.Texts) {
-                            switch (st)
-                            {
-                                case SearchType.Contains:check = check || text.Contains(word);break;
-                                case SearchType.StartWith: check = check || text.StartsWith(word); break;
-                                case SearchType.EndWith: check = check || text.EndsWith(word); break;
-                                case SearchType.Equal: check = check || text==word; break;
-                            }
+                            check = check || f(text,word);
                         }
                         if (check) result.Add(str3);
                     }
@@ -260,8 +267,9 @@ namespace MacDictionary
                 {
                     string temp;
                     if ((temp = Functions.LoadStringShort(nms, System.Text.Encoding.Unicode)) == null) break;
+                    else if (temp.Length == 0) { texts.Add(""); }
                     texts.Add(temp);
-                    Functions.SeekZeros(nms, 2);
+                    //Functions.SeekZeros(nms, 2);
                     if (nms.Position >= nms.Length) { break; }
                 }
                 {

@@ -61,7 +61,8 @@ namespace MacDictionary
             var bytes = new byte[2];
             sr.Read(bytes, 0, 2);
             int strLen1 = Functions.UnpackShort(bytes);
-            if (strLen1 <= 0) { return null; }
+            if (strLen1 < 0) { return null; }
+            else if (strLen1 == 0) { return new byte[0]; }
             var str = new byte[strLen1];
             sr.Read(str, 0, strLen1);
             return str;
